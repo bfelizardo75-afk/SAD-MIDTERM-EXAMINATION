@@ -4,7 +4,8 @@
 const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co"; // Replace with your Supabase URL
 const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";             // Replace with your Supabase Anon Key
 
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const hasSupabaseConfig = !SUPABASE_URL.includes("YOUR-PROJECT") && !SUPABASE_ANON_KEY.includes("YOUR-ANON-KEY");
+const supabaseClient = hasSupabaseConfig ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 // Current Session State
 let currentRole = "Staff"; // "Staff" or "Scholar_A01", etc.
@@ -28,6 +29,7 @@ const OFFICIAL_DEADLINE = new Date("2026-10-30T17:00:00+08:00");
 document.addEventListener("DOMContentLoaded", async () => {
   await fetchPolicies();
   await loadDashboardData();
+  if (allSubmissions.length === 0) seedTestRecords(false);
   switchRole("Staff");
 });
 
@@ -43,12 +45,14 @@ async function fetchPolicies() {
 
 async function loadDashboardData() {
   // Fetch submissions from Supabase or fallback to in-memory array if offline
-  const { data, error } = await supabase.from("submissions").select("*");
-  if (!error && data) {
-    allSubmissions = data;
+  if (supabaseClient) {
+    const { data, error } = await supabaseClient.from("submissions").select("*");
+    if (!error && data) {
+      allSubmissions = data;
+    }
   }
   renderStaffDashboard();
-  renderScholarPortal();
+  if (currentRole !== "Staff") renderScholarPortal();
   renderAuditLogs();
 }
 
@@ -328,7 +332,7 @@ function renderStaffDashboard() {
       <td class="p-3"><span class="text-xs font-semibold px-2 py-0.5 rounded ${sub.verification_status === 'Verified' ? 'bg-indigo-100 text-indigo-800' : 'bg-amber-100 text-amber-800'}">${sub.verification_status}</span></td>
       <td class="p-3">
         <span class="text-xs font-semibold px-2.5 py-1 rounded-full ${compClass}">${sub.compliance_status}</span>
-        ${sub.deficiency_reasons.length ? `<div class="text-[10px] text-rose-600 mt-1">\${sub.deficiency_reasons.join('; ')}</div>` : ''}
+        ${sub.deficiency_reasons.length ? `<div class="text-[10px] text-rose-600 mt-1">${sub.deficiency_reasons.join('; ')}</div>` : ''}
       </td>
       <td class="p-3 text-xs font-bold ${sub.renewal_decision?.decision === 'Approved' ? 'text-emerald-600' : 'text-amber-600'}">${sub.renewal_decision?.decision || 'Pending'}</td>
       <td class="p-3 text-right space-x-1">
@@ -399,8 +403,8 @@ function renderAuditLogs() {
 // =================================================================
 // 9. SEED REQUIRED TEST RECORDS (A01 - A06)
 // =================================================================
-function seedTestRecords() {
-  allSubmissions = [
+function seedTestRecords(showAlert = true) {
+  const seedRecords = [
     {
       submission_id: crypto.randomUUID(),
       student_id: "A01",
@@ -523,7 +527,16 @@ function seedTestRecords() {
     }
   ];
 
-  logAuditEvent("SEED_DATA", "SYSTEM", "Staff", "Seeded required test records A01 to A06");
-  alert("🌱 Seeded 6 test records (A01 - A06) successfully!");
-  loadDashboardData();
+  const existingRecords = new Set(
+    allSubmissions.map(sub => `${sub.student_id}:${sub.academic_year}:${sub.semester}`)
+  );
+  const newRecords = seedRecords.filter(sub =>
+    !existingRecords.has(`${sub.student_id}:${sub.academic_year}:${sub.semester}`)
+  );
+  allSubmissions.push(...newRecords);
+
+  logAuditEvent("SEED_DATA", "SYSTEM", "Staff", `Added ${newRecords.length} test records (A01 to A06)`);
+  if (showAlert) alert(`Added ${newRecords.length} test records (A01 - A06).`);
+  renderStaffDashboard();
+  if (currentRole !== "Staff") renderScholarPortal();
 }
